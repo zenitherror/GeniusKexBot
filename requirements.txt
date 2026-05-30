@@ -4,3 +4,4 @@ requests
 beautifulsoup4
 python-whois
 openai
+psycopg2-binary

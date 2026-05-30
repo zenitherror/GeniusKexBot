@@ -6,6 +6,7 @@ Render Worker Deployment Ready
 
 import logging
 import sqlite3
+from db_wrapper import init_db, execute_query
 import datetime
 import random
 import string
@@ -67,117 +68,56 @@ SUBDOMAIN_FINDER_STATE = 19
 LINK_ANALYZER_STATE = 20
 BROADCAST_STATE = 21
 AI_ASK_STATE = 22
+AI_IMAGE_STATE = 23
+AI_CODE_STATE = 24
+AI_TRANSLATE_STATE = 25
+AI_SUMMARIZE_STATE = 26
+AI_REWRITE_STATE = 27
+AI_EXPLAIN_STATE = 28
+AI_ROAST_STATE = 29
+AI_BUSINESS_STATE = 30
+AI_SEO_STATE = 31
+AI_CAPTION_STATE = 32
+TEMP_MAIL_STATE = 33
+CRYPTO_PRICE_STATE = 34
+TIMEZONE_STATE = 35
+COLOR_PALETTE_STATE = 36
 
 # ============ DATABASE ============
-def get_db_path():
-    return DATABASE_URL if not DATABASE_URL.startswith("postgres") else "geniuskex.db"
-
-def init_db():
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        telegram_id INTEGER UNIQUE,
-        username TEXT,
-        first_name TEXT,
-        last_name TEXT,
-        referral_code TEXT UNIQUE,
-        referred_by INTEGER,
-        referral_points INTEGER DEFAULT 0,
-        daily_bonus_claimed_at TEXT
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS notes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        note_text TEXT
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS secret_vault (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT,
-        content TEXT,
-        referral_unlock_count INTEGER DEFAULT 5
-    )""")
-    c.execute("SELECT COUNT(*) FROM secret_vault")
-    if c.fetchone()[0] == 0:
-        c.execute("INSERT INTO secret_vault (title, content, referral_unlock_count) VALUES (?, ?, ?)",
-                  ("Traffic Hack #1", "Use viral loops: Give users a reason to share. Offer exclusive content behind referral walls.", 5))
-        c.execute("INSERT INTO secret_vault (title, content, referral_unlock_count) VALUES (?, ?, ?)",
-                  ("Money Flow Secret", "Monetize attention: Every 1000 engaged users = $50-200/month via affiliate links, sponsored posts, or premium access.", 10))
-    conn.commit()
-    conn.close()
-    logger.info("Database initialized.")
-
-def get_db_connection():
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
-    return conn
-
 def register_user(telegram_id, username, first_name, last_name, referred_by=None):
-    conn = get_db_connection()
-    cursor = conn.cursor()
     try:
         referral_code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        cursor.execute(
+        execute_query(
             "INSERT INTO users (telegram_id, username, first_name, last_name, referral_code, referred_by) VALUES (?, ?, ?, ?, ?, ?)",
             (telegram_id, username, first_name, last_name, referral_code, referred_by),
+            commit=True
         )
-        conn.commit()
         if referred_by:
-            cursor.execute("UPDATE users SET referral_points = referral_points + 1 WHERE telegram_id = ?", (referred_by,))
-            conn.commit()
+            execute_query("UPDATE users SET referral_points = referral_points + 1 WHERE telegram_id = ?", (referred_by,), commit=True)
         return True
-    except sqlite3.IntegrityError:
+    except Exception:
         return False
-    finally:
-        conn.close()
 
 def get_user(telegram_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
-    user = cursor.fetchone()
-    conn.close()
-    return user
+    return execute_query("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,), fetchone=True)
 
 def update_daily_bonus_claimed_at(telegram_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
     now = datetime.datetime.now().isoformat()
-    cursor.execute("UPDATE users SET daily_bonus_claimed_at = ? WHERE telegram_id = ?", (now, telegram_id))
-    conn.commit()
-    conn.close()
+    execute_query("UPDATE users SET daily_bonus_claimed_at = ? WHERE telegram_id = ?", (now, telegram_id), commit=True)
 
 def get_all_users():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT telegram_id FROM users")
-    users = [row["telegram_id"] for row in cursor.fetchall()]
-    conn.close()
-    return users
+    users = execute_query("SELECT telegram_id FROM users", fetchall=True)
+    return [row["telegram_id"] for row in users] if users else []
 
 def add_note(user_id, note_text):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO notes (user_id, note_text) VALUES (?, ?)", (user_id, note_text))
-    conn.commit()
-    conn.close()
+    execute_query("INSERT INTO notes (user_id, note_text) VALUES (?, ?)", (user_id, note_text), commit=True)
 
 def get_notes(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT note_text FROM notes WHERE user_id = ?", (user_id,))
-    notes = [row["note_text"] for row in cursor.fetchall()]
-    conn.close()
-    return notes
+    notes = execute_query("SELECT note_text FROM notes WHERE user_id = ?", (user_id,), fetchall=True)
+    return [row["note_text"] for row in notes] if notes else []
 
 def get_secret_vault_content(referral_unlock_count):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT title, content FROM secret_vault WHERE referral_unlock_count <= ?", (referral_unlock_count,))
-    secrets = cursor.fetchall()
-    conn.close()
-    return secrets
+    return execute_query("SELECT title, content FROM secret_vault WHERE referral_unlock_count <= ?", (referral_unlock_count,), fetchall=True)
 
 # ============ NVIDIA AI ============
 def nvidia_ai_chat(prompt: str) -> str:
@@ -217,7 +157,37 @@ def get_main_menu_keyboard():
          InlineKeyboardButton("💎 Secret Vault", callback_data="secret_vault")],
         [InlineKeyboardButton("🤖 Ask AI", callback_data="ai_ask"),
          InlineKeyboardButton("💀 DARK TOOLS 💀", callback_data="dark_tools_menu")],
+        [InlineKeyboardButton("🧠 AI TOOLS 2026", callback_data="ai_tools_menu"),
+         InlineKeyboardButton("⚡ POWER TOOLS", callback_data="power_tools_menu")],
         [InlineKeyboardButton("🤝 My Referral Link", callback_data="my_referral_link")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_ai_tools_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("🎨 AI Image Prompt", callback_data="ai_image"),
+         InlineKeyboardButton("💻 AI Code Gen", callback_data="ai_code")],
+        [InlineKeyboardButton("🌐 AI Translate", callback_data="ai_translate"),
+         InlineKeyboardButton("📋 AI Summarize", callback_data="ai_summarize")],
+        [InlineKeyboardButton("✍️ AI Rewrite", callback_data="ai_rewrite"),
+         InlineKeyboardButton("🧠 AI Explain", callback_data="ai_explain")],
+        [InlineKeyboardButton("🔥 AI Roast", callback_data="ai_roast"),
+         InlineKeyboardButton("💼 AI Business", callback_data="ai_business")],
+        [InlineKeyboardButton("📈 AI SEO", callback_data="ai_seo"),
+         InlineKeyboardButton("📸 AI Caption", callback_data="ai_caption")],
+        [InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_power_tools_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("📧 Temp Mail", callback_data="temp_mail"),
+         InlineKeyboardButton("💰 Crypto Price", callback_data="crypto_price")],
+        [InlineKeyboardButton("🕐 Timezone Convert", callback_data="timezone_convert"),
+         InlineKeyboardButton("🎨 Color Palette", callback_data="color_palette")],
+        [InlineKeyboardButton("📊 JSON Formatter", callback_data="json_formatter"),
+         InlineKeyboardButton("🔗 Webhook Tester", callback_data="webhook_tester")],
+        [InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -250,11 +220,7 @@ async def start(update: Update, context) -> None:
     referred_by = None
     if context.args and len(context.args) > 0:
         ref_code = context.args[0]
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT telegram_id FROM users WHERE referral_code = ?", (ref_code,))
-        referrer = cursor.fetchone()
-        conn.close()
+        referrer = execute_query("SELECT telegram_id FROM users WHERE referral_code = ?", (ref_code,), fetchone=True)
         if referrer:
             referred_by = referrer["telegram_id"]
 
@@ -266,7 +232,7 @@ async def start(update: Update, context) -> None:
     else:
         welcome_message = f"⚡ Welcome back, {first_name}! "
 
-    welcome_message += "31 elite tools + AI at your command. Choose wisely:"
+    welcome_message += "45+ elite tools + AI arsenal at your command. Choose wisely:"
 
     await update.message.reply_text(welcome_message, reply_markup=get_main_menu_keyboard())
     context.user_data["state"] = None
@@ -309,6 +275,14 @@ async def button(update: Update, context) -> None:
         await query.edit_message_text("💀 DARK TOOLS - Choose your weapon:", reply_markup=get_dark_tools_keyboard())
         context.user_data["state"] = None
         return
+    elif feature == "ai_tools_menu":
+        await query.edit_message_text("🧠 AI TOOLS 2026 - Next-gen AI power:", reply_markup=get_ai_tools_keyboard())
+        context.user_data["state"] = None
+        return
+    elif feature == "power_tools_menu":
+        await query.edit_message_text("⚡ POWER TOOLS - Utility arsenal:", reply_markup=get_power_tools_keyboard())
+        context.user_data["state"] = None
+        return
 
     # AI Ask
     if feature == "ai_ask":
@@ -348,11 +322,7 @@ async def button(update: Update, context) -> None:
                     context.user_data["state"] = None
                     return
             update_daily_bonus_claimed_at(user_id)
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET referral_points = referral_points + 5 WHERE telegram_id = ?", (user_id,))
-            conn.commit()
-            conn.close()
+            execute_query("UPDATE users SET referral_points = referral_points + 5 WHERE telegram_id = ?", (user_id,), commit=True)
             await query.edit_message_text("🎉 +5 points claimed! Daily bonus collected.", reply_markup=get_main_menu_keyboard())
         else:
             await query.edit_message_text("User not found. Use /start first.", reply_markup=get_main_menu_keyboard())
@@ -438,6 +408,59 @@ async def button(update: Update, context) -> None:
         context.user_data["state"] = EMAIL_CHECK_STATE
         await query.edit_message_text("🧅 Send an email to check dark web exposure:")
 
+    # ===== AI TOOLS 2026 =====
+    elif feature == "ai_image":
+        context.user_data["state"] = AI_IMAGE_STATE
+        await query.edit_message_text("🎨 Describe the image you want AI to create a prompt for:")
+    elif feature == "ai_code":
+        context.user_data["state"] = AI_CODE_STATE
+        await query.edit_message_text("💻 Describe what code you need (language + task):")
+    elif feature == "ai_translate":
+        context.user_data["state"] = AI_TRANSLATE_STATE
+        await query.edit_message_text("🌐 Send text to translate.\nFormat: [target language] your text\nExample: Spanish Hello how are you")
+    elif feature == "ai_summarize":
+        context.user_data["state"] = AI_SUMMARIZE_STATE
+        await query.edit_message_text("📋 Send long text to summarize (AI will condense it):")
+    elif feature == "ai_rewrite":
+        context.user_data["state"] = AI_REWRITE_STATE
+        await query.edit_message_text("✍️ Send text to rewrite in a better way:")
+    elif feature == "ai_explain":
+        context.user_data["state"] = AI_EXPLAIN_STATE
+        await query.edit_message_text("🧠 Send any topic/concept to explain like you're 5:")
+    elif feature == "ai_roast":
+        context.user_data["state"] = AI_ROAST_STATE
+        await query.edit_message_text("🔥 Send a name or bio to get ROASTED by AI:")
+    elif feature == "ai_business":
+        context.user_data["state"] = AI_BUSINESS_STATE
+        await query.edit_message_text("💼 Describe your business idea for AI analysis:")
+    elif feature == "ai_seo":
+        context.user_data["state"] = AI_SEO_STATE
+        await query.edit_message_text("📈 Send a keyword or topic for SEO analysis:")
+    elif feature == "ai_caption":
+        context.user_data["state"] = AI_CAPTION_STATE
+        await query.edit_message_text("📸 Describe your photo/post for AI caption:")
+
+    # ===== POWER TOOLS =====
+    elif feature == "temp_mail":
+        await handle_temp_mail(query)
+        context.user_data["state"] = None
+    elif feature == "crypto_price":
+        context.user_data["state"] = CRYPTO_PRICE_STATE
+        await query.edit_message_text("💰 Send crypto name (e.g., bitcoin, ethereum, solana):")
+    elif feature == "timezone_convert":
+        context.user_data["state"] = TIMEZONE_STATE
+        await query.edit_message_text("🕐 Send timezone (e.g., US/Eastern, Asia/Kolkata, Europe/London):")
+    elif feature == "color_palette":
+        context.user_data["state"] = COLOR_PALETTE_STATE
+        await query.edit_message_text("🎨 Send a color name or hex code for palette generation:")
+    elif feature == "json_formatter":
+        context.user_data["state"] = 37
+        await query.edit_message_text("📊 Send JSON text to format/validate:")
+    elif feature == "webhook_tester":
+        context.user_data["state"] = 38
+        await query.edit_message_text("🔗 Send a URL to test webhook (GET request):")
+
+
 # ============ MESSAGE HANDLER ============
 async def handle_message(update: Update, context) -> None:
     current_state = context.user_data.get("state")
@@ -465,6 +488,22 @@ async def handle_message(update: Update, context) -> None:
         LINK_ANALYZER_STATE: link_analyzer_handler,
         BROADCAST_STATE: broadcast_message_handler,
         AI_ASK_STATE: ai_ask_handler,
+        AI_IMAGE_STATE: ai_image_handler,
+        AI_CODE_STATE: ai_code_handler,
+        AI_TRANSLATE_STATE: ai_translate_handler,
+        AI_SUMMARIZE_STATE: ai_summarize_handler,
+        AI_REWRITE_STATE: ai_rewrite_handler,
+        AI_EXPLAIN_STATE: ai_explain_handler,
+        AI_ROAST_STATE: ai_roast_handler,
+        AI_BUSINESS_STATE: ai_business_handler,
+        AI_SEO_STATE: ai_seo_handler,
+        AI_CAPTION_STATE: ai_caption_handler,
+        TEMP_MAIL_STATE: temp_mail_handler,
+        CRYPTO_PRICE_STATE: crypto_price_handler,
+        TIMEZONE_STATE: timezone_handler,
+        COLOR_PALETTE_STATE: color_palette_handler,
+        37: json_formatter_handler,
+        38: webhook_tester_handler,
     }
 
     handler = state_handlers.get(current_state)
@@ -1041,6 +1080,176 @@ async def broadcast_message_handler(update: Update, context) -> None:
         except Exception as e:
             logger.warning(f"Broadcast fail {uid}: {e}")
     await update.message.reply_text(f"✅ Sent to {sent_count}/{len(users)} users.", reply_markup=get_main_menu_keyboard())
+
+# ============ AI TOOLS 2026 HANDLERS ============
+
+async def ai_image_handler(update: Update, context) -> None:
+    desc = update.message.text
+    await update.message.reply_text("🎨 Generating image prompt...")
+    prompt = f"Create a detailed, professional AI image generation prompt for: {desc}. Include style, lighting, composition, mood, and technical details. Output ONLY the prompt, nothing else."
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"🎨 AI Image Prompt:\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+async def ai_code_handler(update: Update, context) -> None:
+    desc = update.message.text
+    await update.message.reply_text("💻 Generating code...")
+    prompt = f"Write clean, production-ready code for: {desc}. Include comments. Output ONLY the code with brief explanation."
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"💻 AI Code:\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+async def ai_translate_handler(update: Update, context) -> None:
+    text = update.message.text
+    await update.message.reply_text("🌐 Translating...")
+    parts = text.split(" ", 1)
+    if len(parts) >= 2:
+        target_lang = parts[0]
+        content = parts[1]
+    else:
+        target_lang = "English"
+        content = text
+    prompt = f"Translate the following text to {target_lang}. Output ONLY the translation:\n{content}"
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"🌐 Translation ({target_lang}):\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+async def ai_summarize_handler(update: Update, context) -> None:
+    text = update.message.text
+    await update.message.reply_text("📋 Summarizing...")
+    prompt = f"Summarize the following text in 3-5 bullet points. Be concise and capture key points:\n\n{text}"
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"📋 Summary:\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+async def ai_rewrite_handler(update: Update, context) -> None:
+    text = update.message.text
+    await update.message.reply_text("✍️ Rewriting...")
+    prompt = f"Rewrite the following text to be more professional, engaging, and polished. Keep the same meaning:\n\n{text}"
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"✍️ Rewritten:\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+async def ai_explain_handler(update: Update, context) -> None:
+    topic = update.message.text
+    await update.message.reply_text("🧠 Explaining...")
+    prompt = f"Explain '{topic}' like I'm 5 years old. Use simple analogies and examples. Make it fun and easy to understand."
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"🧠 Explanation:\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+async def ai_roast_handler(update: Update, context) -> None:
+    target = update.message.text
+    await update.message.reply_text("🔥 Preparing roast...")
+    prompt = f"Give a savage but funny roast of: {target}. Be creative, witty, and brutal. 5 roast lines. Keep it humorous not hateful."
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"🔥 ROASTED:\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+async def ai_business_handler(update: Update, context) -> None:
+    idea = update.message.text
+    await update.message.reply_text("💼 Analyzing business idea...")
+    prompt = f"Analyze this business idea: {idea}\n\nProvide: 1) Market potential (1-10) 2) Revenue model suggestions 3) Top 3 risks 4) Competitive advantage needed 5) First 3 steps to start. Be direct and actionable."
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"💼 Business Analysis:\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+async def ai_seo_handler(update: Update, context) -> None:
+    keyword = update.message.text
+    await update.message.reply_text("📈 Analyzing SEO...")
+    prompt = f"SEO analysis for keyword/topic: {keyword}\n\nProvide: 1) 10 related long-tail keywords 2) Title tag suggestion 3) Meta description 4) Content outline (H2 headings) 5) Difficulty estimate (easy/medium/hard). Format clearly."
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"📈 SEO Analysis:\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+async def ai_caption_handler(update: Update, context) -> None:
+    desc = update.message.text
+    await update.message.reply_text("📸 Generating captions...")
+    prompt = f"Generate 5 viral social media captions for: {desc}\n\nInclude: 1) Instagram style (with emojis + hashtags) 2) Twitter/X style (short, punchy) 3) LinkedIn style (professional) 4) TikTok style (trendy) 5) YouTube title style (clickbait but honest). Make them engaging and shareable."
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"📸 Captions:\n\n{result}", reply_markup=get_ai_tools_keyboard())
+
+# ============ POWER TOOL HANDLERS ============
+
+async def handle_temp_mail(query) -> None:
+    try:
+        response = requests.get("https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=3", timeout=10)
+        emails = response.json()
+        email_list = "\n".join([f"📧 {e}" for e in emails])
+        await query.edit_message_text(f"📧 Temporary Emails (valid for 1 hour):\n\n{email_list}\n\nUse these for signups!", reply_markup=get_power_tools_keyboard())
+    except Exception as e:
+        await query.edit_message_text(f"Error: {e}", reply_markup=get_power_tools_keyboard())
+
+async def temp_mail_handler(update: Update, context) -> None:
+    await update.message.reply_text("Use the Temp Mail button for instant emails.", reply_markup=get_power_tools_keyboard())
+
+async def crypto_price_handler(update: Update, context) -> None:
+    coin = update.message.text.strip().lower()
+    try:
+        response = requests.get(f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd,inr,eur&include_24hr_change=true&include_market_cap=true", timeout=10)
+        data = response.json()
+        if coin in data:
+            d = data[coin]
+            result = (
+                f"💰 {coin.upper()} Price\n\n"
+                f"💵 USD: ${d.get('usd', 'N/A'):,.2f}\n"
+                f"💶 EUR: €{d.get('eur', 'N/A'):,.2f}\n"
+                f"🇮🇳 INR: ₹{d.get('inr', 'N/A'):,.2f}\n"
+                f"📊 24h Change: {d.get('usd_24h_change', 0):.2f}%\n"
+                f"🏦 Market Cap: ${d.get('usd_market_cap', 0):,.0f}"
+            )
+        else:
+            result = f"❌ Coin '{coin}' not found. Try: bitcoin, ethereum, solana, dogecoin"
+        await update.message.reply_text(result, reply_markup=get_power_tools_keyboard())
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}", reply_markup=get_power_tools_keyboard())
+
+async def timezone_handler(update: Update, context) -> None:
+    tz = update.message.text.strip()
+    try:
+        response = requests.get(f"https://worldtimeapi.org/api/timezone/{tz}", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            result = (
+                f"🕐 Timezone: {data['timezone']}\n\n"
+                f"📅 Date/Time: {data['datetime'][:19]}\n"
+                f"📍 UTC Offset: {data['utc_offset']}\n"
+                f"☀️ Day of Year: {data['day_of_year']}\n"
+                f"📆 Week: {data['week_number']}"
+            )
+        else:
+            result = f"❌ Invalid timezone. Examples: US/Eastern, Asia/Kolkata, Europe/London\nFull list: worldtimeapi.org/api/timezone"
+        await update.message.reply_text(result, reply_markup=get_power_tools_keyboard())
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}", reply_markup=get_power_tools_keyboard())
+
+async def color_palette_handler(update: Update, context) -> None:
+    color = update.message.text.strip()
+    await update.message.reply_text("🎨 Generating palette...")
+    prompt = f"Generate a color palette based on '{color}'. Provide 5 complementary colors with: 1) HEX code 2) RGB values 3) Color name 4) Best use case (web, print, etc). Format as a clean list."
+    result = nvidia_ai_chat(prompt)
+    await update.message.reply_text(f"🎨 Color Palette:\n\n{result}", reply_markup=get_power_tools_keyboard())
+
+async def json_formatter_handler(update: Update, context) -> None:
+    text = update.message.text
+    try:
+        parsed = json.loads(text)
+        formatted = json.dumps(parsed, indent=2)
+        if len(formatted) > 4000:
+            formatted = formatted[:4000] + "\n... (truncated)"
+        await update.message.reply_text(f"📊 Formatted JSON:\n\n{formatted}", reply_markup=get_power_tools_keyboard())
+    except json.JSONDecodeError as e:
+        await update.message.reply_text(f"❌ Invalid JSON:\n{str(e)}", reply_markup=get_power_tools_keyboard())
+
+async def webhook_tester_handler(update: Update, context) -> None:
+    url = update.message.text.strip()
+    if not url.startswith("http"):
+        url = "https://" + url
+    try:
+        response = requests.get(url, timeout=10, headers={'User-Agent': 'GeniusKexBot/1.0'})
+        result = (
+            f"🔗 Webhook Test Result\n\n"
+            f"📍 URL: {url}\n"
+            f"📊 Status: {response.status_code}\n"
+            f"⏱️ Response Time: {response.elapsed.total_seconds():.3f}s\n"
+            f"📦 Content-Type: {response.headers.get('content-type', 'N/A')}\n"
+            f"📏 Size: {len(response.content)} bytes\n"
+            f"🔒 HTTPS: {'Yes' if url.startswith('https') else 'No'}"
+        )
+        await update.message.reply_text(result, reply_markup=get_power_tools_keyboard())
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed: {e}", reply_markup=get_power_tools_keyboard())
 
 # ============ ERROR HANDLER ============
 async def error_handler(update: Update, context) -> None:
